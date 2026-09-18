@@ -9,7 +9,6 @@ bp = Blueprint("tasks", __name__, url_prefix="/api/tasks")
 SEARCH_SORT_COLUMNS = frozenset(
     {
         "id",
-        "user_id",
         "title",
         "description",
         "status",
@@ -61,7 +60,7 @@ def list_tasks():
 @bp.get("/search")
 @login_required
 def search_tasks():
-    """Full-text-ish search across title and description."""
+    """Search the caller's own tasks by title and description."""
     query = request.args.get("q", "")
     sort = request.args.get("sort", "created_at")
     direction = request.args.get("dir", "DESC").upper()
@@ -81,26 +80,24 @@ def search_tasks():
     limit = min(max(requested_limit, 1), current_app.config["PAGE_SIZE_MAX"])
     search_pattern = f"%{query}%"
 
+    # The parentheses around the OR matter: AND binds tighter, so without them
+    # the description branch would match every user's tasks.
     sql = (
         "SELECT * FROM tasks "
-        "WHERE title LIKE ? OR description LIKE ? "
+        "WHERE user_id = ? AND (title LIKE ? OR description LIKE ?) "
         f"ORDER BY {sort} {direction} "
         "LIMIT ?"
     )
 
     with get_connection() as conn:
-        rows = conn.execute(sql, (search_pattern, search_pattern, limit)).fetchall()
+        rows = conn.execute(
+            sql, (g.user_id, search_pattern, search_pattern, limit)
+        ).fetchall()
 
-        results = []
-        for row in rows:
-            owner = conn.execute(
-                "SELECT email FROM users WHERE id = ?", (row["user_id"],)
-            ).fetchone()
-            task = Task.from_row(row).to_dict()
-            task["owner_email"] = owner["email"]
-            results.append(task)
-
-    return jsonify(results=results, count=len(results))
+    return jsonify(
+        results=[Task.from_row(row).to_dict() for row in rows],
+        count=len(rows),
+    )
 
 
 @bp.post("")
