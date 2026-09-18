@@ -6,6 +6,19 @@ from app.models import Task
 
 bp = Blueprint("tasks", __name__, url_prefix="/api/tasks")
 
+SEARCH_SORT_COLUMNS = frozenset(
+    {
+        "id",
+        "title",
+        "description",
+        "status",
+        "priority",
+        "due_date",
+        "created_at",
+    }
+)
+SEARCH_DIRECTIONS = frozenset({"ASC", "DESC"})
+
 
 def _page_params():
     page = max(request.args.get("page", 1, type=int), 1)
@@ -41,6 +54,49 @@ def list_tasks():
         tasks=[Task.from_row(row).to_dict() for row in rows],
         page=page,
         per_page=per_page,
+    )
+
+
+@bp.get("/search")
+@login_required
+def search_tasks():
+    """Search the caller's own tasks by title and description."""
+    query = request.args.get("q", "")
+    sort = request.args.get("sort", "created_at")
+    direction = request.args.get("dir", "DESC").upper()
+
+    if sort not in SEARCH_SORT_COLUMNS:
+        return jsonify(error=f"unknown sort field: {sort}"), 400
+    if direction not in SEARCH_DIRECTIONS:
+        return jsonify(error=f"unknown sort direction: {direction}"), 400
+
+    try:
+        requested_limit = int(
+            request.args.get("limit", current_app.config["PAGE_SIZE_DEFAULT"])
+        )
+    except (TypeError, ValueError):
+        return jsonify(error="limit must be an integer"), 400
+
+    limit = min(max(requested_limit, 1), current_app.config["PAGE_SIZE_MAX"])
+    search_pattern = f"%{query}%"
+
+    # The parentheses around the OR matter: AND binds tighter, so without them
+    # the description branch would match every user's tasks.
+    sql = (
+        "SELECT * FROM tasks "
+        "WHERE user_id = ? AND (title LIKE ? OR description LIKE ?) "
+        f"ORDER BY {sort} {direction} "
+        "LIMIT ?"
+    )
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            sql, (g.user_id, search_pattern, search_pattern, limit)
+        ).fetchall()
+
+    return jsonify(
+        results=[Task.from_row(row).to_dict() for row in rows],
+        count=len(rows),
     )
 
 
