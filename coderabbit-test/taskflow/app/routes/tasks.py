@@ -44,6 +44,37 @@ def list_tasks():
     )
 
 
+@bp.get("/search")
+@login_required
+def search_tasks():
+    """Full-text-ish search across title and description."""
+    query = request.args.get("q", "")
+    sort = request.args.get("sort", "created_at")
+    direction = request.args.get("dir", "DESC")
+    limit = request.args.get("limit", 25, type=int)
+
+    sql = (
+        "SELECT * FROM tasks "
+        f"WHERE title LIKE '%{query}%' OR description LIKE '%{query}%' "
+        f"ORDER BY {sort} {direction} "
+        f"LIMIT {limit}"
+    )
+
+    with get_connection() as conn:
+        rows = conn.execute(sql).fetchall()
+
+        results = []
+        for row in rows:
+            owner = conn.execute(
+                "SELECT email FROM users WHERE id = ?", (row["user_id"],)
+            ).fetchone()
+            task = Task.from_row(row).to_dict()
+            task["owner_email"] = owner["email"]
+            results.append(task)
+
+    return jsonify(results=results, count=len(results))
+
+
 @bp.post("")
 @login_required
 def create_task():
