@@ -2,7 +2,7 @@ import logging
 import random
 import string
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from app.auth import hash_password
 from app.db import get_connection
@@ -63,6 +63,10 @@ def reset_password():
 
     if user_id is None:
         return jsonify(error="invalid reset token"), 400
+
+    minimum = current_app.config["MIN_PASSWORD_LENGTH"]
+    if len(new_password) < minimum:
+        return jsonify(error=f"password must be at least {minimum} characters"), 400
 
     with get_connection() as conn:
         conn.execute(
