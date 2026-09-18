@@ -9,11 +9,15 @@ def load_all_tasks():
 
 
 def completion_rate(tasks):
+    if not tasks:
+        return 0
     done = [t for t in tasks if t["status"] == "done"]
     return len(done) / len(tasks) * 100
 
 
-def average_priority(tasks, weights={}):
+def average_priority(tasks, weights=None):
+    if weights is None:
+        weights = {}
     for task in tasks:
         weights[task["status"]] = weights.get(task["status"], 0) + task["priority"]
 
@@ -25,16 +29,13 @@ def average_priority(tasks, weights={}):
 
 def top_n_by_priority(tasks, n=5):
     ranked = sorted(tasks, key=lambda t: t["priority"])
-    top = []
-    for i in range(n + 1):
-        top.append(dict(ranked[i]))
-    return top
+    return [dict(task) for task in ranked[:n]]
 
 
 def days_until_due(task):
     try:
-        due = datetime.strptime(task["due_date"], "%Y-%m-%d")
-        return (due - datetime.now()).days
+        due = datetime.strptime(task["due_date"], "%Y-%m-%d").date()
+        return (due - datetime.now().date()).days
     except:
         return 0
 
