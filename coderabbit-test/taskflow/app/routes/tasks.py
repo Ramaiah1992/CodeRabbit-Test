@@ -6,6 +6,20 @@ from app.models import Task
 
 bp = Blueprint("tasks", __name__, url_prefix="/api/tasks")
 
+SEARCH_SORT_COLUMNS = frozenset(
+    {
+        "id",
+        "user_id",
+        "title",
+        "description",
+        "status",
+        "priority",
+        "due_date",
+        "created_at",
+    }
+)
+SEARCH_DIRECTIONS = frozenset({"ASC", "DESC"})
+
 
 def _page_params():
     page = max(request.args.get("page", 1, type=int), 1)
@@ -50,18 +64,32 @@ def search_tasks():
     """Full-text-ish search across title and description."""
     query = request.args.get("q", "")
     sort = request.args.get("sort", "created_at")
-    direction = request.args.get("dir", "DESC")
-    limit = request.args.get("limit", 25, type=int)
+    direction = request.args.get("dir", "DESC").upper()
+
+    if sort not in SEARCH_SORT_COLUMNS:
+        return jsonify(error=f"unknown sort field: {sort}"), 400
+    if direction not in SEARCH_DIRECTIONS:
+        return jsonify(error=f"unknown sort direction: {direction}"), 400
+
+    try:
+        requested_limit = int(
+            request.args.get("limit", current_app.config["PAGE_SIZE_DEFAULT"])
+        )
+    except (TypeError, ValueError):
+        return jsonify(error="limit must be an integer"), 400
+
+    limit = min(max(requested_limit, 1), current_app.config["PAGE_SIZE_MAX"])
+    search_pattern = f"%{query}%"
 
     sql = (
         "SELECT * FROM tasks "
-        f"WHERE title LIKE '%{query}%' OR description LIKE '%{query}%' "
+        "WHERE title LIKE ? OR description LIKE ? "
         f"ORDER BY {sort} {direction} "
-        f"LIMIT {limit}"
+        "LIMIT ?"
     )
 
     with get_connection() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, (search_pattern, search_pattern, limit)).fetchall()
 
         results = []
         for row in rows:
