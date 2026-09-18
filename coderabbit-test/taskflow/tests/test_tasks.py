@@ -64,6 +64,31 @@ def test_search_binds_query_and_applies_requested_order(client, auth_headers):
     assert [task["priority"] for task in response.get_json()["results"]] == [1, 4]
 
 
+def test_search_excludes_other_users_tasks(client, auth_headers):
+    other_credentials = {
+        "email": "other@example.com",
+        "password": "another-correct-horse-battery",
+    }
+    assert client.post("/api/users/register", json=other_credentials).status_code == 201
+    login_response = client.post("/api/users/login", json=other_credentials)
+    assert login_response.status_code == 200
+    other_headers = {
+        "Authorization": f"Bearer {login_response.get_json()['token']}"
+    }
+
+    other_task = create(
+        client, other_headers, title="Private matching task"
+    ).get_json()
+    response = client.get(
+        "/api/tasks/search",
+        query_string={"q": "Private matching task"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert other_task["id"] not in [task["id"] for task in response.get_json()["results"]]
+
+
 def test_search_rejects_invalid_query_options(client, auth_headers):
     invalid_sort = client.get(
         "/api/tasks/search",
